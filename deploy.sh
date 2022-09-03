@@ -32,8 +32,8 @@ else
 fi
 
 sudo sam build -u -t $PWD/${template}
-sam deploy --s3-bucket $bucket --stack-name $stack_name --capabilities CAPABILITY_IAM --region $region --no-disable-rollback --no-confirm-changeset --no-fail-on-empty-changeset > /dev/null 2>&1
-sleep 60s
+sudo sam deploy --s3-bucket $bucket --stack-name $stack_name --capabilities CAPABILITY_IAM --region $region --no-disable-rollback --no-confirm-changeset --no-fail-on-empty-changeset > /dev/null 2>&1
+sleep 80s
 
 #vpcpeering_id_1=$(aws ec2 describe-vpc-peering-connections --query 'VpcPeeringConnections[0:3:1].VpcPeeringConnectionId | [1]' --output text)
 #vpcpeering_id_2=$(aws ec2 describe-vpc-peering-connections --query 'VpcPeeringConnections[0:3:1].VpcPeeringConnectionId | [2]' --output text)
