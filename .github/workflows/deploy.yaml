@@ -13,8 +13,6 @@ jobs:
       - name: Checkout Files
         uses: actions/checkout@v2
       - run: |
-	  aws --version
-	  sam --version
           if ! which aws > /dev/null 2>&1; then
             echo "install aws cli"
             curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
@@ -26,6 +24,8 @@ jobs:
             sudo ./sam-installation/install
             sam --version
           fi
+          aws --version && sam --version
+
 
 # https://aws.amazon.com/premiumsupport/knowledge-center/rds-connectivity-instance-subnet-vpc/
 # https://aws.amazon.com/premiumsupport/knowledge-center/rds-connectivity-instance-subnet-vpc/
