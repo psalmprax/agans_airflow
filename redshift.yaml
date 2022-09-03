@@ -1,0 +1,196 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  agans_airflow
+
+  Sample SAM Template for Redshift Data Warehouse
+# https://thorntech.com/redshift-stack-aws-cloudformation/
+# https://aws.amazon.com/premiumsupport/knowledge-center/instance-vpc-troubleshoot/
+Parameters:
+  VpcCdir:
+    Type: String
+    Default: 11.3.0.0/16
+  SubnetCdirPublic1:
+    Type: String
+    Default: 11.3.0.0/24
+  SubnetCdirPublic2:
+    Type: String
+    Default: 11.3.1.0/24
+
+
+Resources:
+  RedshiftVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref VpcCdir
+      EnableDnsHostnames: 'true'
+      EnableDnsSupport: 'true'
+      Tags:
+        - Key: Name
+          Value: !Ref AWS::StackName
+
+  RedshiftPublicSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref RedshiftVPC
+      AvailabilityZone: "eu-central-1a" #!Select [ 1, !GetAZs '' ]
+      CidrBlock: !Ref SubnetCdirPublic2
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-Public2'
+        - Key: AZ
+          Value: !Select [ 0, !GetAZs '' ]
+
+  RedshiftPublicSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref RedshiftVPC
+      AvailabilityZone: "eu-central-1b" #!Select [0, !GetAZs '']
+      CidrBlock: !Ref SubnetCdirPublic1
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-Public'
+        - Key: AZ
+          Value: !Select [ 0, !GetAZs '' ]
+
+  RedshiftInternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Ref AWS::StackName
+
+  RedshiftVPCGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      InternetGatewayId: !Ref RedshiftInternetGateway
+      VpcId: !Ref RedshiftVPC
+
+  RedshiftRouteTablePublic1:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref RedshiftVPC
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-Public1'
+
+  RedshiftRouteTablePublic2:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref RedshiftVPC
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-Public2'
+
+  RedshiftInternetRoute1:
+    Type: AWS::EC2::Route
+    DependsOn:
+    - RedshiftVPCGatewayAttachment
+    Properties:
+      RouteTableId: !Ref RedshiftRouteTablePublic1
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref RedshiftInternetGateway
+
+  RedshiftInternetRoute2:
+    Type: AWS::EC2::Route
+    DependsOn:
+    - RedshiftVPCGatewayAttachment
+    Properties:
+      RouteTableId: !Ref RedshiftRouteTablePublic2
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref RedshiftInternetGateway
+
+
+  myClusterSubnetGroup:
+    Type: 'AWS::Redshift::ClusterSubnetGroup'
+    Properties:
+      Description: My ClusterSubnetGroup
+      SubnetIds:
+        - !Ref RedshiftPublicSubnet1
+        - !Ref RedshiftPublicSubnet2
+      Tags:
+        - Key: Name
+          Value: Redshift_Subnet_Grp
+
+  RedshiftSubnetRouteTableAssociationAZ1:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref RedshiftRouteTablePublic1
+      SubnetId: !Ref RedshiftPublicSubnet1
+
+  RedshiftSubnetRouteTableAssociationAZ12:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref RedshiftRouteTablePublic2
+      SubnetId: !Ref RedshiftPublicSubnet2
+
+
+
+
+
+
+  NewDWHCluster:
+    Type: AWS::Redshift::Cluster
+    DependsOn:
+      - RedshiftVPC
+#        - BiBastionSecurityGroup
+#        - BiAirflowSecurityGroup
+      - RedshiftPublicSubnet1
+      - RedshiftPublicSubnet2
+      - myClusterSubnetGroup
+    Properties:
+      AquaConfigurationStatus: enabled
+      Classic: true
+      ClusterIdentifier: "data-warehouse-test"
+      ClusterType: "multi-node"
+      DBName: "dwh"
+      MasterUsername: "master"
+      MasterUserPassword: "create_your_own_secured_password"
+      #      NodeType: "dc2.8xlarge"
+      NodeType: "ra3.xlplus"
+      NumberOfNodes: 2
+      Port: 5432
+      PubliclyAccessible: true
+      VpcSecurityGroupIds:
+        - !Sub ${myClusterSecurityGroup}
+      ClusterSubnetGroupName: !Ref myClusterSubnetGroup
+      Tags:
+        - Key: Name
+          Value: AGAN_DWH
+
+  myClusterSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Enable JDBC port
+      VpcId: !Ref RedshiftVPC
+      SecurityGroupIngress:
+        - CidrIp: !Ref VpcCdir
+          FromPort: 5432
+          ToPort: 5432
+          IpProtocol: tcp
+          Description: IP address for VPC
+        - CidrIp: "0.0.0.0/0"
+          FromPort: 5432
+          ToPort: 5432
+          IpProtocol: tcp
+          Description: IP address for any where
+        - SourceSecurityGroupId: !Ref AccessToRedshiftSecurityGroup
+          FromPort: 5432
+          ToPort: 5432
+          IpProtocol: tcp
+          Description: Access to redshift
+  AccessToRedshiftSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Access to Redshift access
+      VpcId: !Ref RedshiftVPC
+  InternalSecurityGroupIngress:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      IpProtocol: tcp
+      FromPort: 0
+      ToPort: 65535
+      SourceSecurityGroupId: !Ref myClusterSecurityGroup
+      GroupId: !Ref myClusterSecurityGroup

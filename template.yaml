@@ -1,0 +1,868 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  agans_airflow
+
+  Sample SAM Template for agans_airflow
+# https://thorntech.com/redshift-stack-aws-cloudformation/
+# https://aws.amazon.com/premiumsupport/knowledge-center/instance-vpc-troubleshoot/
+Parameters:
+  EC2InstanceTypeNAT:
+    Type: String
+    Default: t3.medium
+  EC2InstanceTypeAiflow:
+    Type: String
+    Default: c4.2xlarge
+  KeyNameNAT:
+    Description: Amazon EC2 Key Pair
+    Type: "AWS::EC2::KeyPair::KeyName"
+    Default: agan_airflow
+  KeyNameAirflow:
+    Description: Amazon EC2 Key Pair
+    Type: "AWS::EC2::KeyPair::KeyName"
+    Default: agan_airflow
+  BastionEC2AMI:
+    Type: String
+    Default: ami-09439f09c55136ecf
+  AirflowEC2AMI:
+    Type: String
+    Default: ami-05f7491af5eef733a
+  VpcCdir:
+    Type: String
+    Default: 10.3.0.0/16
+  SubnetCdirPublic:
+    Type: String
+    Default: 10.3.0.0/24
+  SubnetCdirPrivate1:
+    Type: String
+    Default: 10.3.1.0/24
+  SubnetCdirPublic2:
+    Type: String
+    Default: 10.3.2.0/24
+  BiAirflowInstanceENIIP:
+    Type: String
+    Default: 10.3.0.80
+  BiBastionInstanceENIIP:
+    Type: String
+    Default: 10.3.1.76
+#  BiBastionInstanceEIP:
+#    Type: String
+#    Default: 10.3.1.76
+  AganSubnetCdirPublic1:
+    Type: String
+    Default: 172.31.0.0/20
+  AganSubnetCdirPublic2:
+    Type: String
+    Default: 172.31.16.0/20
+  AganSubnetCdirPublic3:
+    Type: String
+    Default: 172.31.32.0/20
+
+  RedshiftRouteTablePublic1:
+    Type: String
+    Default: rtb-03770e2f0b975a9a7
+  RedshiftSubnetCdirPublic1:
+    Type: String
+    Default: 11.3.0.0/24
+  RedshiftRouteTablePublic2:
+    Type: String
+    Default: rtb-0cdb82843c653f4d0
+  RedshiftSubnetCdirPublic2:
+    Type: String
+    Default: 11.3.1.0/24
+  RedshiftVPC:
+    Type: String
+    Default: vpc-0b2f2c0e922770389
+  RedshiftVPCCdir:
+    Type: String
+    Default: 11.3.0.0/16
+
+Resources:
+  BiVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref VpcCdir
+      EnableDnsHostnames: 'true'
+      EnableDnsSupport: 'true'
+      Tags:
+        - Key: Name
+          Value: !Ref AWS::StackName
+
+  BiPrivateSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref BiVPC
+      AvailabilityZone: !Select [0, !GetAZs '']
+      CidrBlock: !Ref SubnetCdirPublic
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-Private'
+        - Key: AZ
+          Value: !Select [0, !GetAZs '']
+
+  BiPublicSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref BiVPC
+      AvailabilityZone: "eu-central-1b" #!Select [ 1, !GetAZs '' ]
+      CidrBlock: !Ref SubnetCdirPublic2
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-Public2'
+        - Key: AZ
+          Value: !Select [ 0, !GetAZs '' ]
+
+  BiPublicSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref BiVPC
+      AvailabilityZone: "eu-central-1a" #!Select [0, !GetAZs '']
+      CidrBlock: !Ref SubnetCdirPrivate1
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-Public'
+        - Key: AZ
+          Value: !Select [0, !GetAZs '']
+
+  BiInternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Ref AWS::StackName
+
+  BiVPCGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      InternetGatewayId: !Ref BiInternetGateway
+      VpcId: !Ref BiVPC
+
+  BiRouteTablePublic:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref BiVPC
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-Public'
+
+  BiRouteTablePrivate:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref BiVPC
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-Private'
+
+  BiRouteTablePublic2:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref BiVPC
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-Public2'
+########################################################################################################
+########################################################################################################
+
+########################################################################################################
+########################################################################################################
+  BiInternetRoute:
+    Type: AWS::EC2::Route
+    DependsOn:
+    - BiVPCGatewayAttachment
+    Properties:
+      RouteTableId: !Ref BiRouteTablePublic
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref BiInternetGateway
+
+  BiInternetRoute2:
+    Type: AWS::EC2::Route
+    DependsOn:
+    - BiVPCGatewayAttachment
+    Properties:
+      RouteTableId: !Ref BiRouteTablePublic2
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref BiInternetGateway
+##############################################################
+  BiInternetRouteVPCPeerRequesterPrivate1:
+    Type: AWS::EC2::Route
+    DependsOn:
+    - BiVPCGatewayAttachment
+    - VPCPeeringConn
+    Properties:
+      RouteTableId: !Ref BiRouteTablePrivate
+      DestinationCidrBlock: !Ref AganSubnetCdirPublic3
+      VpcPeeringConnectionId: !Ref VPCPeeringConn
+
+  BiInternetRouteVPCPeerRequesterPrivate2:
+    Type: AWS::EC2::Route
+    DependsOn:
+    - BiVPCGatewayAttachment
+    - VPCPeeringConn
+    Properties:
+      RouteTableId: !Ref BiRouteTablePrivate
+      DestinationCidrBlock: !Ref AganSubnetCdirPublic1
+      VpcPeeringConnectionId: !Ref VPCPeeringConn
+
+  BiInternetRouteVPCPeerRequesterPrivate3:
+    Type: AWS::EC2::Route
+    DependsOn:
+    - BiVPCGatewayAttachment
+    - VPCPeeringConn
+    Properties:
+      RouteTableId: !Ref BiRouteTablePrivate
+      DestinationCidrBlock: !Ref AganSubnetCdirPublic2
+      VpcPeeringConnectionId: !Ref VPCPeeringConn
+##############################################################
+  BiInternetRouteVPCPeerRequesterPublic2Part1:
+    Type: AWS::EC2::Route
+    DependsOn:
+    - BiVPCGatewayAttachment
+    - VPCPeeringConn
+    Properties:
+      RouteTableId: !Ref BiRouteTablePublic2
+      DestinationCidrBlock: !Ref AganSubnetCdirPublic3
+      VpcPeeringConnectionId: !Ref VPCPeeringConn
+
+  BiInternetRouteVPCPeerRequesterPublic2Part2:
+    Type: AWS::EC2::Route
+    DependsOn:
+    - BiVPCGatewayAttachment
+    - VPCPeeringConn
+    Properties:
+      RouteTableId: !Ref BiRouteTablePublic2
+      DestinationCidrBlock: !Ref AganSubnetCdirPublic1
+      VpcPeeringConnectionId: !Ref VPCPeeringConn
+
+  BiInternetRouteVPCPeerRequesterPublic2Part3:
+    Type: AWS::EC2::Route
+    DependsOn:
+    - BiVPCGatewayAttachment
+    - VPCPeeringConn
+    Properties:
+      RouteTableId: !Ref BiRouteTablePublic2
+      DestinationCidrBlock: !Ref AganSubnetCdirPublic2
+      VpcPeeringConnectionId: !Ref VPCPeeringConn
+##############################################################
+
+  BiInternetRouteVPCPeerRequesterPublic1:
+    Type: AWS::EC2::Route
+    DependsOn:
+    - BiVPCGatewayAttachment
+    - VPCPeeringConn
+    Properties:
+      RouteTableId: !Ref BiRouteTablePublic
+      DestinationCidrBlock: !Ref AganSubnetCdirPublic3
+      VpcPeeringConnectionId: !Ref VPCPeeringConn
+
+  BiInternetRouteVPCPeerRequesterPublic2:
+    Type: AWS::EC2::Route
+    DependsOn:
+    - BiVPCGatewayAttachment
+    - VPCPeeringConn
+    Properties:
+      RouteTableId: !Ref BiRouteTablePublic
+      DestinationCidrBlock: !Ref AganSubnetCdirPublic1
+      VpcPeeringConnectionId: !Ref VPCPeeringConn
+
+  BiInternetRouteVPCPeerRequesterPublic3:
+    Type: AWS::EC2::Route
+    DependsOn:
+    - BiVPCGatewayAttachment
+    - VPCPeeringConn
+    Properties:
+      RouteTableId: !Ref BiRouteTablePublic
+      DestinationCidrBlock: !Ref AganSubnetCdirPublic2
+      VpcPeeringConnectionId: !Ref VPCPeeringConn
+##############################################################
+
+  BiInternetRouteVPCPeerAccepterPrivate:
+    Type: AWS::EC2::Route
+    DependsOn:
+      - VPCPeeringConn
+    Properties:
+      RouteTableId: "rtb-9e4faaf7"
+      DestinationCidrBlock: !Ref SubnetCdirPublic
+      VpcPeeringConnectionId: !Ref VPCPeeringConn
+##############################################################
+
+  BiInternetRouteVPCPeerAccepterPublic2Part2:
+    Type: AWS::EC2::Route
+    DependsOn:
+      - VPCPeeringConn
+    Properties:
+      RouteTableId: "rtb-9e4faaf7"
+      DestinationCidrBlock: !Ref SubnetCdirPublic2
+      VpcPeeringConnectionId: !Ref VPCPeeringConn
+##############################################################
+  BiInternetRouteVPCPeerAccepterPublic:
+    Type: AWS::EC2::Route
+    DependsOn:
+      - VPCPeeringConn
+    Properties:
+      RouteTableId: "rtb-9e4faaf7"
+      DestinationCidrBlock: !Ref SubnetCdirPrivate1
+      VpcPeeringConnectionId: !Ref VPCPeeringConn
+
+########################################################################################################
+########################################################################################################
+########################################################################################################
+########################################################################################################
+
+  BiSubnetRouteTableAssociationAZ1:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref BiRouteTablePublic
+      SubnetId: !Ref BiPublicSubnet
+
+  BiSubnetRouteTableAssociationAZ12:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref BiRouteTablePublic2
+      SubnetId: !Ref BiPublicSubnet2
+
+  BiBastionInstanceENIEIP:
+    Type: AWS::EC2::NetworkInterface
+    Properties:
+      Tags:
+        - Key: Name
+          Value: production-public-eip
+      Description: A nice description.
+      SourceDestCheck: 'false'
+      GroupSet:
+        - !Ref BiBastionSecurityGroup
+      SubnetId: !Ref BiPublicSubnet
+      PrivateIpAddress: !Ref BiBastionInstanceENIIP
+
+#  BiBastionInstanceEIP:
+#    Type: AWS::EC2::EIP
+#    DeletionPolicy: Retain
+#    Properties:
+#      Tags:
+#        - Key: Name
+#          Value: BiBastion-eip
+#      Domain: vpc
+  BiBastionInstanceEIPAssociation:
+    Type: AWS::EC2::EIPAssociation
+    DependsOn:
+      - BiVPCGatewayAttachment
+      - BiBastionInstance
+    Properties:
+      AllocationId: 'eipalloc-0455c8994521080a8' # create the eip manually and get this from the resources manually ---> !GetAtt BiBastionInstanceEIP.AllocationId
+      NetworkInterfaceId: !Ref BiBastionInstanceENIEIP
+      PrivateIpAddress: !Ref BiBastionInstanceENIIP
+
+  BiBastionInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref BastionEC2AMI
+      InstanceType: !Ref EC2InstanceTypeNAT
+      KeyName: !Ref KeyNameNAT
+      NetworkInterfaces:
+      - NetworkInterfaceId:
+         Ref: BiBastionInstanceENIEIP
+        DeviceIndex: '0'
+#      - NetworkInterfaceId:
+#         Ref: BiBastionInstanceENI
+#        DeviceIndex: '0'
+      UserData:
+        Fn::Base64:
+          !Sub |
+            #!/bin/bash
+            sudo yum install cloud-init
+            sudo yum update
+            sudo sysctl -w net.ipv4.ip_forward=1
+            sudo /sbin/iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE
+            sudo yum install iptables-services -y
+            sudo service iptables save
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-BiBastionInstance'
+
+  BiBastionSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription:
+        !Sub 'Security group for ${AWS::StackName} bastion host'
+      VpcId: !Ref BiVPC
+
+  BiBastionAllowInboundSSHFromInternet:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref BiBastionSecurityGroup
+      IpProtocol: tcp
+      FromPort: 22
+      ToPort: 22
+      CidrIp: 0.0.0.0/0
+
+  BiBastionAllowInboundHTTPFromPrivateSubnet:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref BiBastionSecurityGroup
+      IpProtocol: tcp
+      FromPort: 80
+      ToPort: 80
+      CidrIp: !Ref SubnetCdirPublic
+
+  BiBastionAllowInboundHTTPSFromPrivateSubnet:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref BiBastionSecurityGroup
+      IpProtocol: tcp
+      FromPort: 443
+      ToPort: 443
+      CidrIp: !Ref SubnetCdirPublic
+
+  BiBastionAllowInboundICMPFromPrivateSubnet:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref BiBastionSecurityGroup
+      IpProtocol: icmp
+      FromPort: -1
+      ToPort: -1
+      CidrIp: !Ref SubnetCdirPublic
+ #############################################################################################
+ #############################################################################################
+  BiBastionAllowInboundHTTPFromPublicSubnet2:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref BiBastionSecurityGroup
+      IpProtocol: tcp
+      FromPort: 80
+      ToPort: 80
+      CidrIp: !Ref SubnetCdirPublic2
+
+  BiBastionAllowInboundHTTPSFromPublicSubnet2:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref BiBastionSecurityGroup
+      IpProtocol: tcp
+      FromPort: 443
+      ToPort: 443
+      CidrIp: !Ref SubnetCdirPublic2
+
+  BiBastionAllowInboundICMPFromPublicSubnet22:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref BiBastionSecurityGroup
+      IpProtocol: icmp
+      FromPort: -1
+      ToPort: -1
+      CidrIp: !Ref SubnetCdirPublic2
+
+  BiBastionAllowInboundICMPFromPublicSubnet23:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref BiBastionSecurityGroup
+      IpProtocol: -1
+      CidrIp: !Ref SubnetCdirPublic2
+ #############################################################################################
+  BiBastionAllowInboundAllFromVPCPeering1:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref BiBastionSecurityGroup
+      IpProtocol: -1 # tcp
+      CidrIp: !Ref AganSubnetCdirPublic1
+
+  BiBastionAllowInboundAllFromVPCPeering2:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref BiBastionSecurityGroup
+      IpProtocol: -1 # tcp
+      CidrIp: !Ref AganSubnetCdirPublic2
+
+  BiBastionAllowInboundAllFromVPCPeering3:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref BiBastionSecurityGroup
+      IpProtocol: -1 # tcp
+      CidrIp: !Ref AganSubnetCdirPublic3
+##############################################################################################
+  BiAirflowInstanceENI:
+    Type: AWS::EC2::NetworkInterface
+    Properties:
+      Tags:
+        - Key: stack
+          Value: production
+      Description: A nice description.
+      SourceDestCheck: 'false'
+      GroupSet:
+        - !Ref BiAirflowSecurityGroup
+      SubnetId: !Ref BiPrivateSubnet
+      PrivateIpAddress: !Ref BiAirflowInstanceENIIP
+
+  BiAirflowInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref AirflowEC2AMI
+      InstanceType: !Ref EC2InstanceTypeAiflow
+      KeyName: !Ref KeyNameAirflow
+#      SubnetId: !Ref BiPrivateSubnet
+      NetworkInterfaces:
+      - NetworkInterfaceId:
+         Ref: BiAirflowInstanceENI
+        DeviceIndex: '0'
+#      SecurityGroupIds:
+#        - !Ref BiAirflowSecurityGroup
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-BiAirflowInstance'
+
+      BlockDeviceMappings:
+        - DeviceName: "/dev/sda1"
+          Ebs:
+            VolumeType: io2
+            Iops: 3000
+            VolumeSize: '180'
+            DeleteOnTermination: 'true'
+            Encrypted: 'false'
+      UserData:
+        Fn::Base64:
+          !Sub |
+            #!/bin/bash
+            sudo apt-get update 
+
+            # https://docs.docker.com/engine/install/ubuntu/
+            sudo apt-get install \
+                ca-certificates \
+                curl \
+                gnupg \
+                lsb-release
+
+            curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg
+
+            echo \
+              "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/ubuntu \
+              $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+
+            sudo apt-get update
+
+            # sudo apt-get install docker-ce docker-ce-cli containerd.io -y
+            sudo apt-get install docker-ce docker-ce-cli containerd.io docker-compose-plugin -y
+
+            docker --version
+
+            # https://docs.docker.com/compose/install/
+            sudo curl -L "https://github.com/docker/compose/releases/download/1.29.2/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
+
+            sudo chmod +x /usr/local/bin/docker-compose
+
+            docker-compose --version
+
+  BiInternetRoutePrivate:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref BiRouteTablePrivate
+      DestinationCidrBlock: 0.0.0.0/0
+      NetworkInterfaceId: !Ref BiBastionInstanceENIEIP
+#      InstanceId: !Ref BiBastionInstance
+
+  BiSubnetRouteTableAssociationAZ2:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref BiRouteTablePrivate
+      SubnetId: !Ref BiPrivateSubnet
+
+  BiAirflowSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription:
+        !Sub 'Internal Security group for ${AWS::StackName}'
+      VpcId: !Ref BiVPC
+
+  BiAirflowAllowInboundSSHFromBastion:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref BiAirflowSecurityGroup
+      IpProtocol: tcp
+      FromPort: 22
+      ToPort: 22
+      CidrIp: 0.0.0.0/0
+
+######################################################################################
+  BiAirflowAllowInboundAllFromVPCPeering1:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref BiAirflowSecurityGroup
+      IpProtocol: -1 # tcp
+      CidrIp: !Ref AganSubnetCdirPublic1
+
+  BiAirflowAllowInboundAllFromVPCPeering2:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref BiAirflowSecurityGroup
+      IpProtocol: -1 # tcp
+      CidrIp: !Ref AganSubnetCdirPublic2
+
+  BiAirflowAllowInboundAllFromVPCPeering3:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref BiAirflowSecurityGroup
+      IpProtocol: -1 # tcp
+      CidrIp: !Ref AganSubnetCdirPublic3
+######################################################################################
+######################################################################################
+  AGANAllowInboundAllFromVPCPeering1:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      Description: "Ingress from D&A Bastion/NAT instance Public Subnet"
+      GroupId: 'sg-6593770c'
+      IpProtocol: -1 # tcp
+      CidrIp: !Ref SubnetCdirPublic
+
+  AGANAllowInboundAllFromVPCPeering2:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      Description: "Ingress from D&A Airflow instance Private Subnet"
+      GroupId: 'sg-6593770c'
+      IpProtocol: -1 # tcp
+      CidrIp: !Ref SubnetCdirPrivate1
+
+  AGANAllowInboundAllFromVPCPeering11:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      Description: "Ingress from D&A Bastion/NAT instance Public Subnet"
+      GroupId: 'sg-a246f3ca'
+      IpProtocol: -1 # tcp
+      CidrIp: !Ref SubnetCdirPublic
+
+  AGANAllowInboundAllFromVPCPeering22:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      Description: "Ingress from D&A Airflow instance Private Subnet"
+      GroupId: 'sg-a246f3ca'
+      IpProtocol: -1 # tcp
+      CidrIp: !Ref SubnetCdirPrivate1
+
+######################################################################################
+######################################################################################
+
+  RedshiftAllowedInboundAllToVPCBastian11:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      Description: "Ingress from D&A Redshift Cluster Public1 Subnet"
+      GroupId: !Ref BiAirflowSecurityGroup
+      IpProtocol: -1 # tcp
+      CidrIp: !Ref RedshiftSubnetCdirPublic1
+
+  RedshiftAllowedInboundAllToVPCBastian12:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      Description: "Ingress from D&A Redshift Cluster Public2 Subnet"
+      GroupId: !Ref BiAirflowSecurityGroup
+      IpProtocol: -1 # tcp
+      CidrIp: !Ref RedshiftSubnetCdirPublic2
+
+  RedshiftAllowedInboundAllToVPCBastian21:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      Description: "Ingress from D&A Redshift Cluster Public1 Subnet"
+      GroupId: !Ref BiBastionSecurityGroup
+      IpProtocol: -1 # tcp
+      CidrIp: !Ref RedshiftSubnetCdirPublic1
+
+  RedshiftAllowedInboundAllToVPCBastian22:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      Description: "Ingress from D&A Redshift Cluster Public2 Subnet"
+      GroupId: !Ref BiBastionSecurityGroup
+      IpProtocol: -1 # tcp
+      CidrIp: !Ref RedshiftSubnetCdirPublic2
+
+######################################################################################
+######################################################################################
+  VPCBastianAllowedInboundAllToRedshift11:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      Description: "Ingress from D&A Bastian Public1 Subnet into Redshift Cluster"
+      GroupId: "sg-06c7d7e218ce20a49"
+      IpProtocol: -1 # tcp
+      CidrIp: !Ref SubnetCdirPublic
+
+  VPCBastianAllowedInboundAllToRedshift12:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      Description: "Ingress from D&A Bastian Public2 Subnet into Redshift Cluster"
+      GroupId: "sg-06c7d7e218ce20a49"
+      IpProtocol: -1 # tcp
+      CidrIp: !Ref SubnetCdirPublic2
+
+  VPCBastianAllowedInboundAllToRedshift21:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      Description: "Ingress from D&A Bastian Public1 Subnet into Redshift Cluster"
+      GroupId: "sg-0ea9f68d55959af6e"
+      IpProtocol: -1 # tcp
+      CidrIp: !Ref SubnetCdirPublic
+
+  VPCBastianAllowedInboundAllToRedshift22:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      Description: "Ingress from D&A Bastian Public2 Subnet into Redshift Cluster"
+      GroupId: "sg-0ea9f68d55959af6e"
+      IpProtocol: -1 # tcp
+      CidrIp: !Ref SubnetCdirPublic2
+
+######################################################################################
+#####################################################################################
+  VPCPeeringConn:
+    Type: AWS::EC2::VPCPeeringConnection
+    Properties:
+      PeerRegion: !Ref "AWS::Region"
+      PeerVpcId: "vpc-1a57b273"
+      VpcId: !Ref BiVPC
+
+  AGANDefaultVPCRouteTableEntryForNewAirflowVPC:
+    Type: AWS::EC2::Route
+    DependsOn:
+      - BiVPC
+    Properties:
+      RouteTableId: "rtb-9e4faaf7"
+      DestinationCidrBlock: !Ref VpcCdir
+      GatewayId: "igw-ea7b9e83"
+
+  RedshiftVPCRouteTableEntryForNewAirflowVPC1:
+    Type: AWS::EC2::Route
+    DependsOn:
+      - BiVPC
+    Properties:
+      RouteTableId: !Ref BiRouteTablePublic
+      DestinationCidrBlock: !Ref RedshiftVPCCdir
+      GatewayId: !Ref BiInternetGateway
+
+  RedshiftVPCRouteTableEntryForNewAirflowVPC2:
+    Type: AWS::EC2::Route
+    DependsOn:
+      - BiVPC
+    Properties:
+      RouteTableId: !Ref BiRouteTablePublic2
+      DestinationCidrBlock: !Ref RedshiftVPCCdir
+      GatewayId: !Ref BiInternetGateway
+
+  BastianPublicToRedshiftRouteVPCSubnetPublicConnection1:
+    Type: AWS::EC2::Route
+    DependsOn:
+    - BiVPCGatewayAttachment
+    - VPCPeeringConnRedshift
+    Properties:
+      RouteTableId: !Ref BiRouteTablePrivate
+      DestinationCidrBlock: !Ref RedshiftSubnetCdirPublic1
+      VpcPeeringConnectionId: !Ref VPCPeeringConnRedshift
+
+  BastianPublicToRedshiftRouteVPCSubnetPublicConnection11:
+    Type: AWS::EC2::Route
+    DependsOn:
+    - BiVPCGatewayAttachment
+    - VPCPeeringConnRedshift
+    Properties:
+      RouteTableId: !Ref BiRouteTablePrivate
+      DestinationCidrBlock: !Ref RedshiftSubnetCdirPublic2
+      VpcPeeringConnectionId: !Ref VPCPeeringConnRedshift
+
+##############################################################################################
+##############################################################################################
+## creating vpcpeering from redshift to bastian subnet and airflow subnet
+  VPCPeeringConnRedshift:
+    Type: AWS::EC2::VPCPeeringConnection
+    Properties:
+      PeerRegion: !Ref "AWS::Region"
+      PeerVpcId: !Ref RedshiftVPC
+      VpcId: !Ref BiVPC
+
+  RedshiftInternetRouteVPCPeerRequesterPublic1:
+    Type: AWS::EC2::Route
+    DependsOn:
+    - BiVPCGatewayAttachment
+    - VPCPeeringConnRedshift
+    Properties:
+      RouteTableId: !Ref RedshiftRouteTablePublic1
+      DestinationCidrBlock: !Ref SubnetCdirPublic
+      VpcPeeringConnectionId: !Ref VPCPeeringConnRedshift
+
+  RedshiftInternetRouteVPCPeerRequesterPublic11:
+    Type: AWS::EC2::Route
+    DependsOn:
+    - BiVPCGatewayAttachment
+    - VPCPeeringConnRedshift
+    Properties:
+      RouteTableId: !Ref RedshiftRouteTablePublic1
+      DestinationCidrBlock: !Ref SubnetCdirPublic2
+      VpcPeeringConnectionId: !Ref VPCPeeringConnRedshift
+
+  RedshiftInternetRouteVPCPeerRequesterPublic2:
+    Type: AWS::EC2::Route
+    DependsOn:
+    - BiVPCGatewayAttachment
+    - VPCPeeringConnRedshift
+    Properties:
+      RouteTableId: !Ref RedshiftRouteTablePublic2
+      DestinationCidrBlock: !Ref SubnetCdirPublic
+      VpcPeeringConnectionId: !Ref VPCPeeringConnRedshift
+
+  RedshiftInternetRouteVPCPeerRequesterPublic22:
+    Type: AWS::EC2::Route
+    DependsOn:
+    - BiVPCGatewayAttachment
+    - VPCPeeringConnRedshift
+    Properties:
+      RouteTableId: !Ref RedshiftRouteTablePublic2
+      DestinationCidrBlock: !Ref SubnetCdirPublic2
+      VpcPeeringConnectionId: !Ref VPCPeeringConnRedshift
+
+##############################################################
+
+  RedshiftInternetRouteVPCPeerAccepterPublic1:
+    Type: AWS::EC2::Route
+    DependsOn:
+      - VPCPeeringConnRedshift
+    Properties:
+      RouteTableId: !Ref BiRouteTablePublic
+      DestinationCidrBlock: !Ref RedshiftSubnetCdirPublic1
+      VpcPeeringConnectionId: !Ref VPCPeeringConnRedshift
+##############################################################
+
+  RedshiftInternetRouteVPCPeerAccepterPublic11:
+    Type: AWS::EC2::Route
+    DependsOn:
+      - VPCPeeringConnRedshift
+    Properties:
+      RouteTableId: !Ref BiRouteTablePublic
+      DestinationCidrBlock: !Ref RedshiftSubnetCdirPublic2
+      VpcPeeringConnectionId: !Ref VPCPeeringConnRedshift
+##############################################################
+  RedshiftInternetRouteVPCPeerAccepterPublic2:
+    Type: AWS::EC2::Route
+    DependsOn:
+      - VPCPeeringConnRedshift
+    Properties:
+      RouteTableId: !Ref BiRouteTablePublic2
+      DestinationCidrBlock: !Ref RedshiftSubnetCdirPublic1
+      VpcPeeringConnectionId: !Ref VPCPeeringConnRedshift
+##############################################################
+
+  RedshiftInternetRouteVPCPeerAccepterPublic22:
+    Type: AWS::EC2::Route
+    DependsOn:
+      - VPCPeeringConnRedshift
+    Properties:
+      RouteTableId: !Ref BiRouteTablePublic2
+      DestinationCidrBlock: !Ref RedshiftSubnetCdirPublic2
+      VpcPeeringConnectionId: !Ref VPCPeeringConnRedshift
+##############################################################
+
+Outputs:
+  BiBastionPublicIp:
+    Description: 'Bastion Public IP'
+    Value: !Sub 'http://${BiBastionInstance.PublicIp}'
+    Export:
+      Name: BiBastionPublicIp
+  BiAirflowPrivateIp:
+    Description: 'Application Private IP'
+    Value: !Sub 'http://${BiAirflowInstance.PrivateIp}'
+    Export:
+      Name: BiAirflowPrivateIp
+# ec2 private ip declaration
+# https://docs.aws.amazon.com/de_de/AWSCloudFormation/latest/UserGuide/aws-properties-ec2-network-interface-privateipspec.html
+# https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-properties-ec2-network-interface-privateipspec.html
+

@@ -1,0 +1,12 @@
+version = 0.1
+[default]
+[default.deploy]
+[default.deploy.parameters]
+stack_name = "agan-airflow"
+s3_bucket = "aws-sam-cli-managed-default-samclisourcebucket-4lm377w4boj2"
+s3_prefix = "agan-airflow"
+region = "eu-central-1"
+capabilities = "CAPABILITY_IAM"
+image_repositories = []
+parameter_overrides = "EC2InstanceTypeNAT=\"t3.medium\" EC2InstanceTypeAiflow=\"c4.2xlarge\" KeyNameNAT=\"agan_airflow\" KeyNameAirflow=\"agan_airflow\" BastionEC2AMI=\"ami-09439f09c55136ecf\" AirflowEC2AMI=\"ami-05f7491af5eef733a\" VpcCdir=\"10.3.0.0/16\" SubnetCdirPublic=\"10.3.0.0/24\" SubnetCdirPrivate1=\"10.3.1.0/24\" SubnetCdirPublic2=\"10.3.2.0/24\" BiAirflowInstanceENIIP=\"10.3.0.80\" BiBastionInstanceENIIP=\"10.3.1.76\" AganSubnetCdirPublic1=\"172.31.0.0/20\" AganSubnetCdirPublic2=\"172.31.16.0/20\" AganSubnetCdirPublic3=\"172.31.32.0/20\" RedshiftRouteTablePublic1=\"rtb-03770e2f0b975a9a7\" RedshiftSubnetCdirPublic1=\"11.3.0.0/24\" RedshiftRouteTablePublic2=\"rtb-0cdb82843c653f4d0\" RedshiftSubnetCdirPublic2=\"11.3.1.0/24\" RedshiftVPC=\"vpc-0b2f2c0e922770389\" RedshiftVPCCdir=\"11.3.0.0/16\""
+confirm_changeset = true
