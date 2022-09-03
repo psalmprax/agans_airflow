@@ -7,7 +7,7 @@ aws sts get-caller-identity
 stack_name=$2
 echo "${stack_name}"
 aws cloudformation delete-stack --stack-name $stack_name
-sleep 80s
+sleep 100s
 region=$(aws configure get region)
 echo "${region}"
 region=${region:-eu-central-1}
