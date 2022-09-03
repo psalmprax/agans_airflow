@@ -25,6 +25,12 @@ jobs:
             sam --version
           fi
           aws --version && sam --version
+          aws configure set default.region ${{ secrets.DEFAULT_REGION }}
+          aws configure set aws_access_key_id ${{ secrets.ACCESS_KEY }}
+          aws configure set aws_secret_access_key ${{ secrets.SECRET_ACCESS_KEY }}
+          sh deploy.sh ${{ secrets.TEMPLATE }} ${{ secrets.STACK_NAME }} 
+          
+
 
 
 # https://aws.amazon.com/premiumsupport/knowledge-center/rds-connectivity-instance-subnet-vpc/
